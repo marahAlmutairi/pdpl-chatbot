@@ -1,0 +1,39 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+
+# Secrets
+.env
+
+# Generated / runtime data
+chroma_db/
+backend/bm25_store.json
+*.db
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime uploads
+backend/uploads/
+
+# Dev debug/test scrap files
+backend/*_debug.txt
+backend/*_test.txt
+backend/test_*.txt
+backend/debug_out.txt
+backend/diag_out.txt
+backend/final2.txt
+backend/search_out.txt
+backend/top5_sensitive.txt
+backend/gemini_test.txt
+test_gen.txt
+test_groq.txt
+test_groq_direct.txt
+test_q2.txt
