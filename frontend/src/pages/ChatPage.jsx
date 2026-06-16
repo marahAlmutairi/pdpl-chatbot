@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { API_BASE_URL, deleteSession, getSessionMessages, getSessions, sendMessage } from '../services/api'
+import PdfViewerModal from '../components/PdfViewerModal'
 
 const FILE_NAMES = {
   'pdpl':     'نظام حماية البيانات الشخصية',
@@ -181,6 +182,7 @@ export default function ChatPage() {
   const [input, setInput]                     = useState('')
   const [loading, setLoading]                 = useState(false)
   const [search, setSearch]                   = useState('')
+  const [pdfModal, setPdfModal]               = useState(null)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -350,16 +352,18 @@ export default function ChatPage() {
                     <span className="sources-label">📚 المصادر:</span>
                     <div className="sources-list">
                       {msg.sources.map((s, j) => (
-                        <a
+                        <button
                           key={j}
                           className="source-chip"
-                          href={`${API_BASE_URL}/pdf/${encodeURIComponent(s.file)}#page=${s.page}`}
-                          target="_blank"
-                          rel="noreferrer"
+                          onClick={() => setPdfModal({
+                            fileUrl: `${API_BASE_URL}/pdf/${encodeURIComponent(s.file)}`,
+                            page: s.page,
+                            title: friendlyName(s.file),
+                          })}
                           title={`افتح ${friendlyName(s.file)} — صفحة ${s.page}`}
                         >
                           📄 {friendlyName(s.file)} — ص {s.page}
-                        </a>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -391,6 +395,15 @@ export default function ChatPage() {
           </div>
         </div>
       </main>
+
+      {pdfModal && (
+        <PdfViewerModal
+          fileUrl={pdfModal.fileUrl}
+          pageNumber={pdfModal.page}
+          title={pdfModal.title}
+          onClose={() => setPdfModal(null)}
+        />
+      )}
     </div>
   )
 }
