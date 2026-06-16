@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { deleteSession, getSessionMessages, getSessions, sendMessage } from '../services/api'
+import { API_BASE_URL, deleteSession, getSessionMessages, getSessions, sendMessage } from '../services/api'
 
 const FILE_NAMES = {
   'pdpl':     'نظام حماية البيانات الشخصية',
@@ -353,7 +353,7 @@ export default function ChatPage() {
                         <a
                           key={j}
                           className="source-chip"
-                          href={`http://localhost:8000/pdf/${encodeURIComponent(s.file)}#page=${s.page}`}
+                          href={`${API_BASE_URL}/pdf/${encodeURIComponent(s.file)}#page=${s.page}`}
                           target="_blank"
                           rel="noreferrer"
                           title={`افتح ${friendlyName(s.file)} — صفحة ${s.page}`}

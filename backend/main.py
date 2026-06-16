@@ -139,7 +139,8 @@ app = FastAPI(title="PDPL RAG API", lifespan=lifespan)
 # بدون هذا سيرفض المتصفح الطلبات (CORS Error)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://192.168.100.29:5173"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],   # السماح بكل أنواع الطلبات (GET, POST, DELETE...)
     allow_headers=["*"],   # السماح بكل الـ headers

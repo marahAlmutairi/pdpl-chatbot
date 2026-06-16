@@ -1444,3 +1444,11 @@ body {
 }
 .g-btn-ghost:hover { background: var(--gm); }
 
+/* ── Mobile ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .chat-main { width: 100%; }
+  .input-bar { padding: 14px 14px 18px; }
+  .msg-row { max-width: 100%; }
+}
+
