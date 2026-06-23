@@ -3,10 +3,8 @@ services:
     name: pdpl-chatbot-backend
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python backend/run.py
+    startCommand: cd backend && python run.py
     envVars:
       - key: GROQ_API_KEY
         sync: false
-      - key: PORT
-        value: 10000
     autoDeploy: true
