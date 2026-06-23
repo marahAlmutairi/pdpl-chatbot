@@ -40,7 +40,7 @@ from rag.loader import load_file           # قراءة ملفات PDF/TXT
 from rag.retriever import load_from_disk, retrieve  # البحث في الـ vectors
 from rag.reranker import rerank            # إعادة ترتيب النتائج
 from rag.vectorstore import is_shared_loaded, upsert_chunks  # ChromaDB
-from rag.article_lookup import lookup_articles  # بحث مباشر في نص المواد
+from rag.article_lookup import lookup_articles, lookup_by_title_keywords, _extract_comparison_keywords  # بحث مباشر في نص المواد
 
 
 # ══════════════════════════════════════════════════════════════
@@ -352,13 +352,17 @@ def chat(req: ChatRequest, db: DBSession = Depends(get_db)):
 
     # 6a: direct article lookup — إذا طُلبت مادة بعينها نرجع نصها مباشرة
     direct, sources = lookup_articles(req.question)
+    _comparison_keywords = ['فرق', 'مقارنة', 'قارن', 'الفرق', 'مقارنه']
+    _is_comparison = any(kw in req.question for kw in _comparison_keywords)
+
     if direct:
-        _comparison_keywords = ['فرق', 'مقارنة', 'قارن', 'الفرق', 'مقارنه']
-        if any(kw in req.question for kw in _comparison_keywords):
+        # مرر النص الخام للـ LLM لتنظيف الترتيب المقلوب من استخراج PDF
+        if _is_comparison:
             comparison = generate_comparison(direct, req.question)
-            answer = f"{direct}\n\nالفرق بين المادتين:\n{comparison}" if comparison else direct
+            raw = f"{direct}\n\nالفرق بين المادتين:\n{comparison}" if comparison else direct
         else:
-            answer = direct
+            raw = direct
+        answer = generate_answer(req.question, [], forced_context=raw)
     else:
         # 6b: retrieve — ابحث في BM25 عن أقرب 15 chunk للسؤال
         chunks = retrieve(req.question, user_id=0, k=15)
@@ -366,8 +370,22 @@ def chat(req: ChatRequest, db: DBSession = Depends(get_db)):
         # 6c: rerank — رتّب أفضل 7 chunks بالـ reranker (Cross-Encoder)
         top_chunks = rerank(req.question, chunks, top_k=7)
 
-        # 6d: generate — أرسل السؤال + السياق + التاريخ لـ Groq LLM
-        answer = generate_answer(req.question, top_chunks, history=history)
+        if _is_comparison:
+            # 6d-مقارنة: ابحث في عناوين المواد بكلمات الموضوع أولاً
+            kws = _extract_comparison_keywords(req.question)
+            topic_text, topic_sources = lookup_by_title_keywords(kws) if kws else ("", [])
+            if topic_text:
+                # وجدنا المواد الصحيحة → مررها للـ LLM مع comparison prompt لتنظيفها وعرضها
+                answer = generate_answer(req.question, top_chunks, history=history, forced_context=topic_text)
+                sources = topic_sources
+                direct = True  # لتجاوز إعادة حساب المصادر لاحقاً
+            else:
+                # احتياطي: RAG عادي مع comparison prompt
+                answer = generate_answer(req.question, top_chunks, history=history)
+        else:
+            # 6d: generate — أرسل السؤال + السياق + التاريخ لـ Groq LLM
+            answer = generate_answer(req.question, top_chunks, history=history)
+
 
     # ── خطوة 7: استخراج المصادر الفريدة ──────────────────────
     _FILE_DISPLAY = {
@@ -376,19 +394,19 @@ def chat(req: ChatRequest, db: DBSession = Depends(get_db)):
         "لائحة+نقل+البيانات+خارج+المملكة.pdf": "لائحة نقل البيانات خارج المملكة.pdf",
     }
     if not direct:
-        seen_pages = set()
-        sources = []
-        for c in top_chunks:
-            page = c["metadata"]["page_number"]
-            raw_file = c["metadata"]["file_name"]
-            display_file = _FILE_DISPLAY.get(raw_file, raw_file)
-            key = (display_file, page)
-            if key not in seen_pages and len(sources) < 3:
-                seen_pages.add(key)
-                sources.append({
-                    "file": display_file,
-                    "page": page
-                })
+        # أولاً: حاول استخراج المصادر من أرقام المواد المذكورة في الإجابة
+        sources = _sources_from_answer_articles(answer, _FILE_DISPLAY)
+        if not sources:
+            # ثانياً: استخدم المصادر من أفضل chunks فقط (بدون فلترة بـ score لتجنب ص 2)
+            seen_pages = set()
+            for c in top_chunks[:5]:  # أفضل 5 chunks فقط
+                page = c["metadata"]["page_number"]
+                raw_file = c["metadata"]["file_name"]
+                display_file = _FILE_DISPLAY.get(raw_file, raw_file)
+                key = (display_file, page)
+                if key not in seen_pages and len(sources) < 3:
+                    seen_pages.add(key)
+                    sources.append({"file": display_file, "page": page})
 
     result = {"answer": answer, "sources": sources}
 
@@ -411,6 +429,40 @@ def chat(req: ChatRequest, db: DBSession = Depends(get_db)):
 
     # ── خطوة 9: إرجاع النتيجة للـ Frontend ───────────────────
     return {**result, "session_id": session_id}
+
+
+def _sources_from_answer_articles(answer: str, file_display: dict) -> list:
+    """
+    استخرج المصادر الصحيحة من خلال أرقام المواد المذكورة في الإجابة.
+    أدق من الاعتماد على scores الـ chunks لأننا نعرف بالضبط أي مادة ذُكرت.
+    """
+    from rag.article_lookup import (
+        _find_article_names_in_question,
+        _find_article_page,
+        _CLEANED_DIR,
+    )
+    article_names = _find_article_names_in_question(answer)
+    if not article_names:
+        return []
+
+    sources = []
+    seen = set()
+    for art_name in article_names[:2]:
+        for txt_file in sorted(_CLEANED_DIR.glob("*.txt")):
+            content = txt_file.read_text(encoding="utf-8")
+            page = _find_article_page(content, art_name)
+            if page:
+                stem = txt_file.stem
+                if stem.endswith("_clean"):
+                    stem = stem[:-6]
+                raw = stem + ".pdf"
+                display = file_display.get(raw, raw)
+                key = (display, page)
+                if key not in seen:
+                    seen.add(key)
+                    sources.append({"file": display, "page": page})
+                break
+    return sources
 
 
 def _save_exchange(db, session_id: int, question: str, answer: str, sources: list, session: ChatSession):

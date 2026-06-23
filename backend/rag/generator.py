@@ -29,8 +29,9 @@ SYSTEM_PROMPT = """أنت مساعد ذكاء اصطناعي يعمل بنظام
 - لا تحذف أي فقرة أو بند أو نقطة موجودة في السياق، انقل كل شيء كاملاً
 - إذا كان هناك أرقام مواد، اذكرها كما وردت في النص
 - رتّب المعلومات بحسب ترتيبها في الوثيقة
-- إذا لم يكن السياق يحتوي على أي معلومات ذات صلة: قل "المعلومة غير موجودة في الملفات المتاحة"
-- لا تستخدم عبارات مثل "أعتقد" أو "قد يكون" أو "على الأرجح"
+- إذا لم يكن السياق يحتوي على أي معلومات ذات صلة: قل "المعلومة غير موجودة في الملفات المتاحة" فقط بدون أي جمل إضافية
+- لا تكتب أي مقدمة مثل "يمكن استنتاج" أو "المعلومة غير موجودة بشكل كافٍ ولكن..." أو ما شابهها — اذهب مباشرة للإجابة
+- لا تستخدم عبارات مثل "أعتقد" أو "قد يكون" أو "على الأرجح" أو "يمكن استنتاج"
 - لا تضف أي معلومة من خارج السياق
 
 قواعد التنسيق الصارمة:
@@ -40,7 +41,7 @@ SYSTEM_PROMPT = """أنت مساعد ذكاء اصطناعي يعمل بنظام
 - اكتب بنص عادي واضح بدون أي خط عريض أو مائل
 - لا تذكر اسم الملف أو رقم الصفحة في متن إجابتك، المصادر تظهر تلقائياً في الواجهة
 - لا تكتب أي سطر يبدأ بـ [ أو يحتوي على اسم ملف
-- إذا وجدت في السياق نصاً مقلوباً أو غير مفهوم، تجاهله واستخدم النص الواضح فقط"""
+- إذا وجدت في السياق جملة كلماتها في ترتيب مقلوب (نتيجة استخراج PDF)، أعد ترتيب كلمات تلك الجملة بشكل صحيح مع الحفاظ على جميع المعلومات دون حذف أي شيء"""
 
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -61,7 +62,7 @@ def _call_groq(model: str, messages: list) -> str:
         json={
             "model": model,
             "messages": messages,
-            "max_tokens": 2048,
+            "max_tokens": 3000,
             "temperature": 0.2,
             "frequency_penalty": 0.8,
         },
@@ -122,13 +123,10 @@ def _find_requested_articles(question: str, chunks: List[Dict]) -> str:
 
 
 def _remove_repetition(text: str) -> str:
-    """Truncate text where a word or phrase repeats 4+ times consecutively."""
-    match = re.search(r'\b(\S+)(\s+\1){3,}', text)
+    """Truncate text only when a single word repeats 5+ times consecutively (LLM hallucination)."""
+    match = re.search(r'\b(\S+)(\s+\1){4,}', text)
     if match:
         text = text[:match.start()].rstrip()
-    match2 = re.search(r'((?:\S+\s+){1,3}\S+)(\s+\1){2,}', text)
-    if match2 and match2.start() < len(text):
-        text = text[:match2.start()].rstrip()
     return text
 
 
@@ -157,26 +155,53 @@ def generate_comparison(articles_text: str, question: str) -> str:
     return ""
 
 
-def generate_answer(question: str, chunks: List[Dict], history: Optional[List[Dict]] = None) -> str:
-    if not chunks:
+_COMPARISON_KEYWORDS = ['فرق', 'مقارنة', 'قارن', 'الفرق', 'مقارنه', 'الفرق بين', 'يختلف', 'الاختلاف']
+
+COMPARISON_SYSTEM_PROMPT = """أنت مساعد ذكاء اصطناعي يعمل بنظام RAG ويعتمد حصراً على المستندات المرفوعة.
+
+المستخدم يسأل عن الفرق بين نوعين أو فئتين. اتبع هذا التنسيق بدقة:
+
+1. انقل نص المادة أو المواد المتعلقة بالفئة الأولى حرفياً كما وردت في السياق بدون أي تغيير.
+2. انقل نص المادة أو المواد المتعلقة بالفئة الثانية حرفياً كما وردت في السياق بدون أي تغيير.
+3. اكتب فقرة قصيرة تبدأ بـ "الفرق:" توضح الفرق الجوهري بين الفئتين في 2-3 جمل بناءً على النص المنقول فقط.
+
+قواعد صارمة:
+- انقل النص الحرفي من السياق كما هو تماماً بدون أي تلخيص أو حذف أو إعادة صياغة
+- لا تحذف أي فقرة أو بند أو نقطة موجودة في السياق
+- لا تستخدم ** أو ## أو أي رموز تنسيق
+- استخدم الأرقام للقوائم: 1. 2. 3.
+- استخدم شرطة للنقاط: -
+- لا تذكر اسم الملف أو رقم الصفحة في متن إجابتك
+- اعتمد فقط على المعلومات الواردة في السياق"""
+
+
+def generate_answer(question: str, chunks: List[Dict], history: Optional[List[Dict]] = None, forced_context: str = "") -> str:
+    if not chunks and not forced_context:
         return "لم يُذكر هذا في الوثائق المتاحة."
 
-    # For article-specific questions, inject verbatim text into the prompt
-    verbatim = _find_requested_articles(question, chunks)
-    verbatim_block = ""
-    if verbatim:
-        verbatim_block = (
-            "\n\nنص المواد المطلوبة كما هو حرفياً في الوثيقة — انسخه في إجابتك بدون أي تغيير:\n"
-            "══════════════════════════\n"
-            f"{verbatim}\n"
-            "══════════════════════════\n"
-        )
+    is_comparison = any(kw in question for kw in _COMPARISON_KEYWORDS)
 
-    context = "\n\n---\n\n".join(
-        f"[{c['metadata']['file_name']} — صفحة {c['metadata']['page_number']}]\n{c['content']}"
-        for c in chunks
-    )
-    context_capped = context[:12000]
+    if forced_context:
+        # للمقارنة: السياق محدد مسبقاً من البحث بالعنوان
+        context_capped = forced_context[:12000]
+        verbatim_block = ""
+    else:
+        # For article-specific questions, inject verbatim text into the prompt
+        verbatim = _find_requested_articles(question, chunks)
+        verbatim_block = ""
+        if verbatim:
+            verbatim_block = (
+                "\n\nنص المواد المطلوبة كما هو حرفياً في الوثيقة — انسخه في إجابتك بدون أي تغيير:\n"
+                "══════════════════════════\n"
+                f"{verbatim}\n"
+                "══════════════════════════\n"
+            )
+
+        context = "\n\n---\n\n".join(
+            f"[{c['metadata']['file_name']} — صفحة {c['metadata']['page_number']}]\n{c['content']}"
+            for c in chunks
+        )
+        context_capped = context[:12000]
 
     history_text = ""
     if history:
@@ -189,7 +214,7 @@ def generate_answer(question: str, chunks: List[Dict], history: Optional[List[Di
     user_prompt = f"السياق من الوثيقة:\n{context_capped}{verbatim_block}{history_text}\nالسؤال الحالي:\n{question}"
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": COMPARISON_SYSTEM_PROMPT if is_comparison else SYSTEM_PROMPT},
         {"role": "user",   "content": user_prompt},
     ]
 

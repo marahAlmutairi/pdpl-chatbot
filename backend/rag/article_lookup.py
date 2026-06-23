@@ -125,16 +125,112 @@ def _find_article_names_in_question(question: str) -> List[str]:
 
 
 def _find_article_page(content: str, article_name: str) -> Optional[int]:
-    """Return the page number where the article appears in the cleaned file."""
+    """
+    Return the estimated page number where the article appears.
+    When multiple articles share one page block (missing separator),
+    we estimate position proportionally between the surrounding page markers.
+    """
     escaped = re.escape(article_name)
     m = re.search(rf'^المادة\s+{escaped}', content, re.MULTILINE)
     if not m:
         return None
+
+    article_pos = m.start()
     page_sep_re = re.compile(r'={10,}\nالصفحة\s+(\d+)\n={10,}')
-    last_page = None
-    for pm in page_sep_re.finditer(content[:m.start()]):
-        last_page = int(pm.group(1))
-    return last_page
+
+    prev_page, prev_pos = None, 0
+    next_page, next_pos = None, len(content)
+
+    for pm in page_sep_re.finditer(content):
+        if pm.start() < article_pos:
+            prev_page = int(pm.group(1))
+            prev_pos = pm.start()
+        elif pm.start() > article_pos and next_page is None:
+            next_page = int(pm.group(1))
+            next_pos = pm.start()
+
+    if prev_page is None:
+        return None
+
+    # If only one page missing between markers, estimate by position ratio
+    if next_page is not None and next_page > prev_page + 1:
+        page_gap = next_page - prev_page
+        ratio = (article_pos - prev_pos) / max(next_pos - prev_pos, 1)
+        estimated = prev_page + round(ratio * page_gap)
+        return max(prev_page, min(next_page - 1, estimated))
+
+    return prev_page
+
+
+def lookup_by_title_keywords(keywords: list) -> tuple:
+    """
+    ابحث عن المواد التي يحتوي عنوانها على إحدى الكلمات المفتاحية.
+    يُستخدم لأسئلة المقارنة التي لا تذكر رقم المادة.
+    مثال: ["الصحيه", "الائتمانيه"] → يجد المادة 26 والمادة 27
+    """
+    # البحث على النص الأصلي لتجنب اختلاف مواضع النص المُعدَّل
+    _title_re = re.compile(r'^(المادة\s+\S+(?:\s+\S+){0,4}:[^\n]*)', re.MULTILINE)
+    _art_name_re = re.compile(r'^المادة\s+(\S+(?:\s+\S+){0,4}):', re.MULTILINE)
+
+    results = []
+    sources = []
+    seen_pages: set = set()
+    seen_texts: set = set()
+
+    for txt_file in sorted(_CLEANED_DIR.glob("*.txt")):
+        content = txt_file.read_text(encoding="utf-8")
+
+        for kw in keywords:
+            kw_norm = _normalize(kw.strip())
+            if not kw_norm:
+                continue
+            # ابحث في النص الأصلي، وعدِّل العنوان فقط عند المقارنة
+            for m in _title_re.finditer(content):
+                title_norm = _normalize(m.group(1))
+                if kw_norm not in title_norm:
+                    continue
+                # استخرج اسم المادة من نفس الموضع في النص الأصلي
+                art_m = _art_name_re.match(content, m.start())
+                if not art_m:
+                    continue
+                art_name = art_m.group(1).rstrip(':،').strip()
+                text = _extract_article(content, art_name)
+                if not text or text in seen_texts:
+                    continue
+                seen_texts.add(text)
+                results.append(text)
+                stem = txt_file.stem
+                if stem.endswith("_clean"):
+                    stem = stem[:-6]
+                doc_name = stem + ".pdf"
+                page = _find_article_page(content, art_name)
+                key = (doc_name, page)
+                if key not in seen_pages:
+                    seen_pages.add(key)
+                    sources.append({"file": doc_name, "page": page or 1})
+                break  # كلمة مفتاحية واحدة → مادة واحدة من هذا الملف
+
+    return "\n\n".join(results), sources
+
+
+def _extract_comparison_keywords(question: str) -> list:
+    """
+    استخرج الكلمات الموضوعية من سؤال المقارنة.
+    مثال: "ما الفرق بين البيانات الصحية والائتمانية" → ["الصحية", "الائتمانية"]
+    """
+    stop = {'ما', 'ماذا', 'الفرق', 'فرق', 'بين', 'مقارنة', 'قارن',
+            'في', 'من', 'على', 'إلى', 'عن', 'مع', 'هل', 'كيف', 'لماذا',
+            'معالجة', 'معالجه', 'البيانات', 'بيانات', 'نظام', 'اللائحة', 'و', 'أو'}
+    stop_norm = {_normalize(s) for s in stop}
+
+    # أزل "و" العاطفة الملتصقة بأول الكلمة قبل التصفية
+    raw_words = re.findall(r'\b\w{3,}\b', question)
+    words = []
+    for w in raw_words:
+        clean = re.sub(r'^و', '', w) if w.startswith('و') and len(w) > 3 else w
+        if _normalize(clean) not in stop_norm and len(clean) >= 4:
+            words.append(clean)
+    return words
 
 
 def lookup_articles(question: str):

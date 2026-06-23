@@ -402,14 +402,19 @@ body {
   border-bottom-right-radius: 5px;
   box-shadow: var(--shadow-sm);
 }
-.bubble-text { word-break: break-word; }
+.bubble-text { word-break: break-word; color: var(--text); }
+.bubble-text * { color: var(--text); }
+.msg-row.user .bubble-text,
+.msg-row.user .bubble-text * { color: #fff; }
 .bubble-text p               { margin: 0 0 8px; }
 .bubble-text p:last-child    { margin-bottom: 0; }
 .bubble-text ul, .bubble-text ol { margin: 6px 0 8px; padding-right: 20px; }
 .bubble-text li              { margin-bottom: 5px; line-height: 1.7; }
-.bubble-text strong          { font-weight: 700; }
-.bubble-text h1,.bubble-text h2,.bubble-text h3 {
-  margin: 10px 0 5px; font-weight: 700; font-size: 14px;
+.bubble-text strong, .bubble-text b { font-weight: 600; }
+.bubble-text em              { font-style: normal; }
+.bubble-text h1,.bubble-text h2,.bubble-text h3,
+.bubble-text h4,.bubble-text h5,.bubble-text h6 {
+  margin: 10px 0 5px; font-weight: 600; font-size: 14px;
 }
 
 /* sources */
@@ -588,6 +593,101 @@ body {
 .auth-link { margin-top: 20px; font-size: 13px; color: var(--text-muted); }
 .auth-link a { color: var(--primary); text-decoration: none; }
 .auth-link a:hover { text-decoration: underline; }
+
+/* ── Mobile header (مخفي على الديسكتوب) ───────────────────── */
+.mobile-header  { display: none; }
+.sidebar-overlay { display: none; }
+
+/* ══════════════════════════════════════════════════════════
+   📱 RESPONSIVE — مقاس الجوال (≤ 768px)
+   ══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* ── السايدبار يختفي ويصبح درج جانبي ── */
+  .sidebar {
+    position: fixed;
+    top: 0; right: -100%;
+    height: 100%;
+    width: 80%;
+    max-width: 300px;
+    z-index: 200;
+    transition: right 0.28s ease;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.15);
+  }
+  .sidebar.sidebar-open { right: 0; }
+
+  /* Overlay خلف السايدبار */
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 199;
+  }
+
+  /* ── هيدر موبايل ── */
+  .mobile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #2F6F5F;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  .mobile-menu-btn {
+    background: none; border: none;
+    color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 4px;
+  }
+  .mobile-header-title {
+    font-size: 15px; font-weight: 700; color: #fff;
+  }
+  .mobile-new-chat {
+    background: rgba(255,255,255,0.2);
+    border: none; border-radius: 50%;
+    color: #fff; font-size: 22px; font-weight: 300;
+    width: 34px; height: 34px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+  }
+
+  /* ── منطقة المحادثة ── */
+  .messages-area { padding: 16px 14px; gap: 12px; }
+
+  /* ── فقاعات الرسائل ── */
+  .msg-row        { max-width: 92%; }
+  .msg-row.assistant { max-width: 96%; }
+  .bubble         { font-size: 13.5px; padding: 11px 14px; }
+
+  /* ── شاشة الترحيب والبطاقات ── */
+  .welcome-screen { padding: 16px 12px; }
+  .welcome-title  { font-size: 20px; }
+  .welcome-subtitle { font-size: 13px; margin-bottom: 24px; }
+  .suggestions-grid { grid-template-columns: 1fr; gap: 10px; }
+
+  /* ── شريط الإدخال ── */
+  .input-bar { padding: 10px 12px 16px; }
+  .input-wrap { padding: 4px 4px 4px 12px; }
+  .input-wrap input { font-size: 15px; padding: 10px 4px; }
+  .send-btn { width: 42px; height: 42px; }
+
+  /* ── صفحة الأناليتكس ── */
+  .analytics-body { padding: 16px; }
+  .stats-grid { grid-template-columns: 1fr; gap: 10px; }
+  .charts-grid { grid-template-columns: 1fr; gap: 10px; }
+
+  /* ── صفحة الدخول ── */
+  .auth-card { padding: 32px 20px; margin: 16px; }
+
+  /* ── حجم الخط على موبايل ── */
+  .bubble-text { font-weight: 400; }
+  .bubble-text * { font-weight: inherit; }
+  .bubble-text strong, .bubble-text b { font-weight: 600; }
+}
 
 /* ═══════════════════════════════════════════════════════════
    🎮 GAME PAGE — حارس هويتك

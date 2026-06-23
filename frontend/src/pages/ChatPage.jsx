@@ -183,6 +183,7 @@ export default function ChatPage() {
   const [loading, setLoading]                 = useState(false)
   const [search, setSearch]                   = useState('')
   const [pdfModal, setPdfModal]               = useState(null)
+  const [sidebarOpen, setSidebarOpen]         = useState(false)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -246,8 +247,11 @@ export default function ChatPage() {
   return (
     <div className="chat-layout">
 
+      {/* Mobile overlay */}
+      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+
       {/* ── Sidebar ── */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-brand" onClick={() => navigate('/')}
           style={{ cursor: 'pointer' }}>
           <img src="/logo.png" alt="logo" className="sidebar-logo" />
@@ -304,6 +308,17 @@ export default function ChatPage() {
 
       {/* ── Main ── */}
       <main className="chat-main">
+
+        {/* Mobile header */}
+        <div className="mobile-header">
+          <button className="mobile-menu-btn" onClick={() => setSidebarOpen(o => !o)}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <span className="mobile-header-title">المساعد الذكي PDPL</span>
+          <button className="mobile-new-chat" onClick={handleNewChat}>+</button>
+        </div>
 
         <div className="messages-area">
           {messages.length === 0 && (
